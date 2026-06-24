@@ -17,43 +17,56 @@ io.on('connection', (socket) => {
     socket.on('joinRoom', (roomCode) => {
         socket.join(roomCode);
         if (!rooms[roomCode]) {
-            rooms[roomCode] = { players: [], readyCount: 0 };
+            rooms[roomCode] = { players: [], readyCount: 0, startVotes: 0 };
         }
         
-        if (rooms[roomCode].players.length < 2) {
+        if (rooms[roomCode].players.length < 2 && !rooms[roomCode].players.includes(socket.id)) {
             rooms[roomCode].players.push(socket.id);
             socket.emit('roomJoined', roomCode);
-            console.log(`Spieler ${socket.id} in Raum ${roomCode}`);
-        } else {
+        } else if (rooms[roomCode].players.length >= 2 && !rooms[roomCode].players.includes(socket.id)) {
             socket.emit('roomFull');
         }
     });
 
-    socket.on('playerReady', ({ roomCode }) => {
+    // Spieler signalisiert, dass er die Schiffe fertig platziert hat und START drückt
+    socket.on('playerReadyToStart', ({ roomCode }) => {
         if (rooms[roomCode]) {
-            rooms[roomCode].readyCount++;
-            if (rooms[roomCode].readyCount === 2) {
-                io.to(roomCode).emit('gameReady', { 
-                    startingPlayer: rooms[roomCode].players[0] 
-                });
+            rooms[roomCode].startVotes++;
+            
+            // Erst wenn BEIDE Spieler auf Start gedrückt haben
+            if (rooms[roomCode].startVotes === 2) {
+                // Zufälligen Startspieler bestimmen
+                const starter = rooms[roomCode].players[Math.floor(Math.random() * 2)];
+                io.to(roomCode).emit('gameReady', { startingPlayer: starter });
             }
         }
     });
 
+    // Reset-Logik für eine neue Runde
+    socket.on('requestRestart', ({ roomCode }) => {
+        if (rooms[roomCode]) {
+            rooms[roomCode].startVotes = 0; // Start-Stimmen zurücksetzen
+            io.to(roomCode).emit('restartGame');
+        }
+    });
+
     socket.on('fireShot', ({ roomCode, targetX, targetY }) => {
-        // Schuss an den Gegner weiterleiten
         socket.to(roomCode).emit('incomingShot', { targetX, targetY });
     });
 
     socket.on('shotResult', ({ roomCode, result, targetX, targetY }) => {
-        // Ergebnis an den Schützen zurückmelden
-        // Wenn es ein Treffer ('hit') war, bleibt der Schütze dran.
-        // Bei 'miss' wechselt die Runde (wird im Frontend gesteuert).
         socket.to(roomCode).emit('shotResultReport', { result, targetX, targetY });
     });
 
     socket.on('disconnect', () => {
-        console.log(`User getrennt: ${socket.id}`);
+        // Räume aufräumen, wenn jemand geht
+        for (const roomCode in rooms) {
+            if (rooms[roomCode].players.includes(socket.id)) {
+                rooms[roomCode].players = rooms[roomCode].players.filter(id => id !== socket.id);
+                rooms[roomCode].startVotes = 0;
+                io.to(roomCode).emit('opponentDisconnected');
+            }
+        }
     });
 });
 
