@@ -7,35 +7,58 @@
     <style>
         body { font-family: sans-serif; text-align: center; background: #f0f4f8; color: #333; margin: 0; padding: 20px; }
         
-        /* Hauptmenü Style */
+        #musicControls { position: absolute; top: 15px; right: 15px; background: white; padding: 8px 12px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; z-index: 1000; }
+        #changeMusicBtn { background: #10b981; color: white; border: none; border-radius: 15px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
+        
         #menu { max-width: 400px; margin: 50px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .menu-btn { display: block; width: 100%; padding: 12px; margin: 10px 0; font-size: 16px; font-weight: bold; color: white; background: #2563eb; border: none; border-radius: 5px; cursor: pointer; }
-        .menu-btn:hover { background: #1d4ed8; }
         input { width: 90%; padding: 10px; font-size: 16px; margin: 10px 0; border: 2px solid #cbd5e1; border-radius: 5px; text-align: center; }
         
-        /* Spielbereich (Standardmäßig versteckt) */
         #gameArea { display: none; }
-        
         .boards { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; margin-top: 20px; }
         .grid { display: grid; grid-template-columns: repeat(10, 35px); gap: 2px; background: #ccc; padding: 2px; border-radius: 5px; }
         .cell { width: 35px; height: 35px; background: #0088cc; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; user-select: none; }
         .cell.ship { background: #334155; }
         .cell.hit { background: #ef4444; }
         .cell.miss { background: #cbd5e1; }
-        .cell.disabled { pointer-events: none; }
+        
         #status { font-size: 20px; font-weight: bold; margin: 20px; padding: 10px; background: #e2e8f0; display: inline-block; border-radius: 8px; }
         
         #inventory { margin: 20px auto; max-width: 500px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .inventory-list { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 10px; }
         .ship-item { display: flex; align-items: center; gap: 10px; padding: 8px 15px; background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 5px; cursor: pointer; width: 80%; justify-content: space-between; }
         .ship-item.selected { border-color: #3b82f6; background: #eff6ff; }
-        .ship-item.placed { opacity: 0.4; cursor: not-allowed; border-color: #e2e8f0; background: #f8fafc; }
+        .ship-item.placed { opacity: 0.4; border-color: #e2e8f0; background: #f8fafc; }
         .ship-preview { display: flex; gap: 2px; }
         .preview-block { width: 15px; height: 15px; background: #475569; }
         #rotateBtn { padding: 10px 20px; font-size: 16px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; margin-bottom: 10px; font-weight: bold; }
+        
+        /* Neuer Start-Button */
+        #actionBtn { display: none; margin: 15px auto; padding: 12px 30px; font-size: 18px; font-weight: bold; background: #ff9800; color: white; border: none; border-radius: 5px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
+        /* ENDSCREEN OVERLAY */
+        #endscreen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.85); z-index: 2000; color: white; justify-content: center; align-items: center; flex-direction: column; }
+        #endscreen h1 { font-size: 48px; margin-bottom: 10px; }
+        #restartBtn { padding: 15px 40px; font-size: 20px; font-weight: bold; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        #restartBtn:hover { background: #059669; }
     </style>
 </head>
 <body>
+
+    <div id="musicControls">
+        <span id="musicTrackName">🎵 Musik: Aus</span>
+        <button id="changeMusicBtn">Wechseln</button>
+    </div>
+
+    <audio id="bgMusic" loop></audio>
+    <audio id="hitSound" src="hit.mp3"></audio>
+    <audio id="missSound" src="miss.mp3"></audio>
+
+    <div id="endscreen">
+        <h1 id="endResultText">DU HAST GEWONNEN!</h1>
+        <p id="endSubText">Alle gegnerischen Schiffe wurden versenkt.</p>
+        <button id="restartBtn">Nochmal spielen 🔄</button>
+    </div>
 
     <div id="menu">
         <h2>⚓ Schiffe Versenken Online ⚓</h2>
@@ -49,6 +72,10 @@
         <h2 id="roomTitle">Raum: -</h2>
         <div id="status">Wähle ein Schiff aus dem Inventar aus!</div>
         
+        <div>
+            <button id="actionBtn">Spiel starten 🏁</button>
+        </div>
+
         <div class="boards">
             <div>
                 <h3>Dein Spielfeld</h3>
@@ -72,15 +99,49 @@
         let currentRoomCode = "";
         
         let myTurn = false;
-        let myShips = [];
         let isPlacingPhase = true;
+        let totalHitCount = 0;      // Wie oft ich getroffen habe (Max 17)
+        let enemyHitCount = 0;     // Wie oft der Gegner mich getroffen hat (Max 17)
+
+        // Speicherstruktur für Platzierungs-Änderungen
+        let placedShipsMap = {}; // index -> ship-Objekt
+        let myShips = [];        // Reine Indizes für das Spiel
+
+        const tracks = [
+            { name: "Chilliger Seemann", src: "background1.mp3" },
+            { name: "Spannendes Gefecht", src: "background2.mp3" },
+            { name: "Epische Flotte", src: "background3.mp3" },
+            { name: "Geheimnisvolle See", src: "background4.mp3" }
+        ];
+        let currentTrackIndex = 0;
+        let isMusicPlaying = false;
+
+        const bgMusic = document.getElementById('bgMusic');
+        const hitSound = document.getElementById('hitSound');
+        const missSound = document.getElementById('missSound');
+        const trackNameText = document.getElementById('musicTrackName');
+        const changeMusicBtn = document.getElementById('changeMusicBtn');
+        const actionBtn = document.getElementById('actionBtn');
+        const endscreen = document.getElementById('endscreen');
+
+        function playTrack(index) {
+            bgMusic.src = tracks[index].src;
+            bgMusic.volume = 0.15;
+            trackNameText.innerText = `🎵 Track: ${tracks[index].name}`;
+            bgMusic.play().then(() => { isMusicPlaying = true; }).catch(e => {});
+        }
+
+        changeMusicBtn.addEventListener('click', () => {
+            currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
+            playTrack(currentTrackIndex);
+        });
 
         let inventory = [
-            { id: 0, name: "Schlachtschiff", size: 5, placed: false },
-            { id: 1, name: "Kreuzer", size: 4, placed: false },
-            { id: 2, name: "Zerstörer A", size: 3, placed: false },
-            { id: 3, name: "Zerstörer B", size: 3, placed: false },
-            { id: 4, name: "U-Boot", size: 2, placed: false }
+            { id: 0, name: "Schlachtschiff", size: 5, placed: false, cells: [] },
+            { id: 1, name: "Kreuzer", size: 4, placed: false, cells: [] },
+            { id: 2, name: "Zerstörer A", size: 3, placed: false, cells: [] },
+            { id: 3, name: "Zerstörer B", size: 3, placed: false, cells: [] },
+            { id: 4, name: "U-Boot", size: 2, placed: false, cells: [] }
         ];
         
         let selectedShip = null;
@@ -92,14 +153,14 @@
         const rotateBtn = document.getElementById('rotateBtn');
         const shipListContainer = document.getElementById('shipList');
 
-        // MENÜ LOGIK
         document.getElementById('createRoomBtn').addEventListener('click', () => {
-            // Generiert einen zufälligen 4-stelligen Code (z.B. 4821)
+            if(!isMusicPlaying) playTrack(currentTrackIndex);
             const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
             socket.emit('joinRoom', randomCode);
         });
 
         document.getElementById('joinRoomBtn').addEventListener('click', () => {
+            if(!isMusicPlaying) playTrack(currentTrackIndex);
             const code = document.getElementById('roomInput').value.trim();
             if(code) socket.emit('joinRoom', code);
         });
@@ -108,17 +169,8 @@
             currentRoomCode = roomCode;
             document.getElementById('menu').style.display = 'none';
             document.getElementById('gameArea').style.display = 'block';
-            document.getElementById('roomTitle').innerText = `Raum-Code: ${roomCode} (Gib diesen deiner Freundin)`;
-        });
-
-        socket.on('roomFull', () => {
-            alert("Dieser Raum ist leider schon voll!");
-        });
-
-        // INVENTAR & BOARD LOGIK
-        rotateBtn.addEventListener('click', () => {
-            isHorizontal = !isHorizontal;
-            rotateBtn.innerText = isHorizontal ? "Ausrichtung: Waagerecht ➡️" : "Ausrichtung: Senkrecht ⬇️";
+            document.getElementById('roomTitle').innerText = `Raum-Code: ${roomCode}`;
+            initBoards();
         });
 
         function renderInventory() {
@@ -145,56 +197,110 @@
                 shipListContainer.appendChild(item);
             });
         }
-        renderInventory();
 
-        for (let i = 0; i < 100; i++) {
-            const myCell = document.createElement('div');
-            myCell.classList.add('cell');
-            myCell.addEventListener('click', () => {
-                if (!isPlacingPhase || !selectedShip) return;
-                const startX = i % 10;
-                const startY = Math.floor(i / 10);
-                let canPlace = true;
-                let newShipCells = [];
+        function initBoards() {
+            myGrid.innerHTML = "";
+            enemyGrid.innerHTML = "";
+            myShips = [];
+            placedShipsMap = {};
+            totalHitCount = 0;
+            enemyHitCount = 0;
+            isPlacingPhase = true;
+            actionBtn.style.display = "none";
+            document.getElementById('inventory').style.display = 'block';
+            statusText.innerText = "Wähle ein Schiff aus dem Inventar aus!";
+            
+            inventory.forEach(s => { s.placed = false; s.cells = []; });
+            renderInventory();
 
-                for (let s = 0; s < selectedShip.size; s++) {
-                    let currentX = startX + (isHorizontal ? s : 0);
-                    let currentY = startY + (isHorizontal ? 0 : s);
-                    let index = currentY * 10 + currentX;
-                    if (currentX >= 10 || currentY >= 10 || myShips.includes(index)) { canPlace = false; break; }
-                    newShipCells.push(index);
-                }
+            for (let i = 0; i < 100; i++) {
+                const myCell = document.createElement('div');
+                myCell.classList.add('cell');
+                
+                myCell.addEventListener('click', () => {
+                    if (!isPlacingPhase) return;
 
-                if (canPlace) {
-                    newShipCells.forEach(idx => {
-                        myShips.push(idx);
-                        myGrid.children[idx].classList.add('ship');
-                    });
-                    selectedShip.placed = true;
-                    selectedShip = null;
-                    renderInventory();
-                    
-                    if (inventory.every(s => s.placed)) {
-                        isPlacingPhase = false;
-                        document.getElementById('inventory').style.display = 'none';
-                        statusText.innerText = "Alle Schiffe platziert! Warte auf Gegner...";
-                        socket.emit('playerReady', { roomCode: currentRoomCode });
+                    // Änderungsmöglichkeit: Wenn bereits ein Schiff auf dieser Zelle liegt, löschen wir es komplett!
+                    if (placedShipsMap[i]) {
+                        const shipToRemove = placedShipsMap[i];
+                        shipToRemove.cells.forEach(idx => {
+                            myGrid.children[idx].classList.remove('ship');
+                            delete placedShipsMap[idx];
+                        });
+                        shipToRemove.placed = false;
+                        shipToRemove.cells = [];
+                        selectedShip = null;
+                        actionBtn.style.display = "none";
+                        renderInventory();
+                        statusText.innerText = `${shipToRemove.name} entfernt. Du kannst es neu platzieren.`;
+                        return;
                     }
-                }
-            });
-            myGrid.appendChild(myCell);
 
-            const enemyCell = document.createElement('div');
-            enemyCell.classList.add('cell');
-            enemyCell.addEventListener('click', () => {
-                if (!myTurn || isPlacingPhase || enemyCell.classList.contains('hit') || enemyCell.classList.contains('miss')) return;
-                const x = i % 10;
-                const y = Math.floor(i / 10);
-                socket.emit('fireShot', { roomCode: currentRoomCode, targetX: x, targetY: y });
-                myTurn = false; // Wird erst mal auf false gesetzt, bis wir das Feedback vom Server kriegen
-            });
-            enemyGrid.appendChild(enemyCell);
+                    if (!selectedShip) return;
+
+                    const startX = i % 10;
+                    const startY = Math.floor(i / 10);
+                    let canPlace = true;
+                    let newShipCells = [];
+
+                    for (let s = 0; s < selectedShip.size; s++) {
+                        let currentX = startX + (isHorizontal ? s : 0);
+                        let currentY = startY + (isHorizontal ? 0 : s);
+                        let index = currentY * 10 + currentX;
+                        if (currentX >= 10 || currentY >= 10 || placedShipsMap[index]) { canPlace = false; break; }
+                        newShipCells.push(index);
+                    }
+
+                    if (canPlace) {
+                        newShipCells.forEach(idx => {
+                            placedShipsMap[idx] = selectedShip;
+                            selectedShip.cells.push(idx);
+                            myGrid.children[idx].classList.add('ship');
+                        });
+                        selectedShip.placed = true;
+                        selectedShip = null;
+                        renderInventory();
+                        
+                        // Wenn alle Schiffe platziert sind, zeige den Start Button!
+                        if (inventory.every(s => s.placed)) {
+                            statusText.innerText = "Alle Schiffe platziert! Drücke 'Spiel starten'!";
+                            actionBtn.style.display = "block";
+                            actionBtn.innerText = "Spiel starten 🏁";
+                        } else {
+                            statusText.innerText = "Schiff platziert! Wähle das nächste.";
+                        }
+                    }
+                });
+                myGrid.appendChild(myCell);
+
+                const enemyCell = document.createElement('div');
+                enemyCell.classList.add('cell');
+                enemyCell.addEventListener('click', () => {
+                    if (!myTurn || isPlacingPhase || enemyCell.classList.contains('hit') || enemyCell.classList.contains('miss')) return;
+                    const x = i % 10;
+                    const y = Math.floor(i / 10);
+                    socket.emit('fireShot', { roomCode: currentRoomCode, targetX: x, targetY: y });
+                    myTurn = false;
+                });
+                enemyGrid.appendChild(enemyCell);
+            }
         }
+
+        rotateBtn.addEventListener('click', () => {
+            isHorizontal = !isHorizontal;
+            rotateBtn.innerText = isHorizontal ? "Ausrichtung: Waagerecht ➡️" : "Ausrichtung: Senkrecht ⬇️";
+        });
+
+        // Klick auf den Start-Button
+        actionBtn.addEventListener('click', () => {
+            // Schiffkoordinaten für das echte Match fixieren
+            myShips = Object.keys(placedShipsMap).map(Number);
+            isPlacingPhase = false;
+            document.getElementById('inventory').style.display = 'none';
+            actionBtn.style.display = "none";
+            statusText.innerText = "Warte auf Bestätigung des Gegners...";
+            socket.emit('playerReadyToStart', { roomCode: currentRoomCode });
+        });
 
         socket.on('gameReady', (data) => {
             if (data.startingPlayer === socket.id) {
@@ -214,19 +320,28 @@
             if (myShips.includes(index)) {
                 result = 'hit';
                 cell.classList.add('hit');
+                hitSound.play();
+                enemyHitCount++;
+                
+                // Prüfen, ob der Gegner ALLE meine Schiffsteile (17 gesamt) getroffen hat
+                if (enemyHitCount === 17) {
+                    showEndscreen(false);
+                }
             } else {
                 cell.classList.add('miss');
+                missSound.play();
             }
 
             socket.emit('shotResult', { roomCode: currentRoomCode, result, targetX: data.targetX, targetY: data.targetY });
             
-            // LOGIK: WENN GEGNER GEHITET HAT, BLEIBT ER DRAN. WENN ER VERFEHLT HAT, BIN ICH DRAN.
-            if (result === 'miss') {
-                myTurn = true;
-                statusText.innerText = "Du bist dran! Schieße auf den Gegner.";
-            } else {
-                myTurn = false;
-                statusText.innerText = "Gegner hat getroffen und darf nochmal!";
+            if (enemyHitCount < 17) {
+                if (result === 'miss') {
+                    myTurn = true;
+                    statusText.innerText = "Du bist dran! Schieße auf den Gegner.";
+                } else {
+                    myTurn = false;
+                    statusText.innerText = "Gegner hat getroffen und darf nochmal!";
+                }
             }
         });
 
@@ -237,15 +352,53 @@
             if (data.result === 'hit') {
                 cell.classList.add('hit');
                 cell.innerText = "X";
-                myTurn = true; // RECHTSKLICK/TREFFER-REGEL: Ich habe getroffen, also darf ich noch mal!
-                statusText.innerText = "Treffer! Du darfst nochmal schießen!";
+                hitSound.play();
+                totalHitCount++;
+                
+                // Wenn ich alle 17 Teile getroffen habe, habe ICH gewonnen!
+                if (totalHitCount === 17) {
+                    showEndscreen(true);
+                } else {
+                    myTurn = true;
+                    statusText.innerText = "Treffer! Du darfst nochmal schießen!";
+                }
             } else {
                 cell.classList.add('miss');
                 cell.innerText = "O";
-                myTurn = false; // Vorbeigeschossen, der Gegner ist dran.
+                missSound.play();
+                myTurn = false;
                 statusText.innerText = "Vorbeigeschossen. Gegner ist an der Reihe...";
             }
         });
+
+        function showEndscreen(hasWon) {
+            endscreen.style.display = "flex";
+            if (hasWon) {
+                document.getElementById('endResultText').innerText = "DU HAST GEWONNEN! 🏆";
+                document.getElementById('endSubText').innerText = "Hervorragende Arbeit, Admiral!";
+            } else {
+                document.getElementById('endResultText').innerText = "DU WURDEST BESIEGT! ☠️";
+                document.getElementById('endSubText').innerText = "Deine Flotte liegt am Meeresgrund.";
+            }
+        }
+
+        // Restart anfordern
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            endscreen.style.display = "none";
+            socket.emit('requestRestart', { roomCode: currentRoomCode });
+        });
+
+        socket.on('restartGame', () => {
+            endscreen.style.display = "none";
+            initBoards();
+        });
+
+        socket.on('opponentDisconnected', () => {
+            alert("Der Gegner hat die Verbindung getrennt. Das Spiel wird zurückgesetzt.");
+            window.location.reload();
+        });
+        
+        socket.on('roomFull', () => { alert("Raum voll!"); });
     </script>
 </body>
 </html>
