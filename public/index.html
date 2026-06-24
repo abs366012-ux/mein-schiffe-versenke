@@ -7,9 +7,14 @@
     <style>
         body { font-family: sans-serif; text-align: center; background: #f0f4f8; color: #333; margin: 0; padding: 20px; }
         
+        /* Musik-Steuerung oben rechts */
         #musicControls { position: absolute; top: 15px; right: 15px; background: white; padding: 8px 12px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; z-index: 1000; }
-        #changeMusicBtn { background: #10b981; color: white; border: none; border-radius: 15px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
-        
+        .control-btn { color: white; border: none; border-radius: 15px; padding: 5px 10px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        #changeMusicBtn { background: #10b981; }
+        #changeMusicBtn:hover { background: #059669; }
+        #muteMusicBtn { background: #ef4444; }
+        #muteMusicBtn:hover { background: #dc2626; }
+
         #menu { max-width: 400px; margin: 50px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .menu-btn { display: block; width: 100%; padding: 12px; margin: 10px 0; font-size: 16px; font-weight: bold; color: white; background: #2563eb; border: none; border-radius: 5px; cursor: pointer; }
         input { width: 90%; padding: 10px; font-size: 16px; margin: 10px 0; border: 2px solid #cbd5e1; border-radius: 5px; text-align: center; }
@@ -33,10 +38,8 @@
         .preview-block { width: 15px; height: 15px; background: #475569; }
         #rotateBtn { padding: 10px 20px; font-size: 16px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; margin-bottom: 10px; font-weight: bold; }
         
-        /* Neuer Start-Button */
         #actionBtn { display: none; margin: 15px auto; padding: 12px 30px; font-size: 18px; font-weight: bold; background: #ff9800; color: white; border: none; border-radius: 5px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        /* ENDSCREEN OVERLAY */
         #endscreen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.85); z-index: 2000; color: white; justify-content: center; align-items: center; flex-direction: column; }
         #endscreen h1 { font-size: 48px; margin-bottom: 10px; }
         #restartBtn { padding: 15px 40px; font-size: 20px; font-weight: bold; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
@@ -47,7 +50,8 @@
 
     <div id="musicControls">
         <span id="musicTrackName">🎵 Musik: Aus</span>
-        <button id="changeMusicBtn">Wechseln</button>
+        <button id="changeMusicBtn" class="control-btn">Wechseln</button>
+        <button id="muteMusicBtn" class="control-btn">Ton Aus 🤫</button>
     </div>
 
     <audio id="bgMusic" loop></audio>
@@ -100,12 +104,11 @@
         
         let myTurn = false;
         let isPlacingPhase = true;
-        let totalHitCount = 0;      // Wie oft ich getroffen habe (Max 17)
-        let enemyHitCount = 0;     // Wie oft der Gegner mich getroffen hat (Max 17)
+        let totalHitCount = 0;
+        let enemyHitCount = 0;
 
-        // Speicherstruktur für Platzierungs-Änderungen
-        let placedShipsMap = {}; // index -> ship-Objekt
-        let myShips = [];        // Reine Indizes für das Spiel
+        let placedShipsMap = {};
+        let myShips = [];
 
         const tracks = [
             { name: "Chilliger Seemann", src: "background1.mp3" },
@@ -115,25 +118,63 @@
         ];
         let currentTrackIndex = 0;
         let isMusicPlaying = false;
+        let isMuted = false;
+        const defaultMusicVolume = 0.12; // Normale Lautstärke der Musik (12%)
 
         const bgMusic = document.getElementById('bgMusic');
         const hitSound = document.getElementById('hitSound');
         const missSound = document.getElementById('missSound');
         const trackNameText = document.getElementById('musicTrackName');
         const changeMusicBtn = document.getElementById('changeMusicBtn');
+        const muteMusicBtn = document.getElementById('muteMusicBtn');
         const actionBtn = document.getElementById('actionBtn');
         const endscreen = document.getElementById('endscreen');
 
         function playTrack(index) {
             bgMusic.src = tracks[index].src;
-            bgMusic.volume = 0.15;
+            bgMusic.volume = isMuted ? 0 : defaultMusicVolume;
             trackNameText.innerText = `🎵 Track: ${tracks[index].name}`;
             bgMusic.play().then(() => { isMusicPlaying = true; }).catch(e => {});
+        }
+
+        // Funktion für professionelles Audio-Ducking (Musik leiser machen bei Soundeffekt)
+        function playSoundEffect(effectAudio) {
+            // Effekte laufen immer auf voller Power (100%)
+            effectAudio.volume = 1.0; 
+            
+            // Wenn Musik an ist, ducke sie weg (auf 3% Lautstärke absenken)
+            if (isMusicPlaying && !isMuted) {
+                bgMusic.volume = 0.03;
+            }
+            
+            effectAudio.play();
+            
+            // Sobald der Soundeffekt vorbei ist, drehen wir die Musik wieder hoch
+            effectAudio.onended = () => {
+                if (isMusicPlaying && !isMuted) {
+                    bgMusic.volume = defaultMusicVolume;
+                }
+            };
         }
 
         changeMusicBtn.addEventListener('click', () => {
             currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
             playTrack(currentTrackIndex);
+        });
+
+        // Stummschalten Logik
+        muteMusicBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            if (isMuted) {
+                bgMusic.volume = 0;
+                muteMusicBtn.innerText = "Ton An 🔊";
+                muteMusicBtn.style.background = "#10b981";
+            } else {
+                bgMusic.volume = defaultMusicVolume;
+                muteMusicBtn.innerText = "Ton Aus 🤫";
+                muteMusicBtn.style.background = "#ef4444";
+                if(!isMusicPlaying) playTrack(currentTrackIndex);
+            }
         });
 
         let inventory = [
@@ -154,13 +195,13 @@
         const shipListContainer = document.getElementById('shipList');
 
         document.getElementById('createRoomBtn').addEventListener('click', () => {
-            if(!isMusicPlaying) playTrack(currentTrackIndex);
+            if(!isMusicPlaying && !isMuted) playTrack(currentTrackIndex);
             const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
             socket.emit('joinRoom', randomCode);
         });
 
         document.getElementById('joinRoomBtn').addEventListener('click', () => {
-            if(!isMusicPlaying) playTrack(currentTrackIndex);
+            if(!isMusicPlaying && !isMuted) playTrack(currentTrackIndex);
             const code = document.getElementById('roomInput').value.trim();
             if(code) socket.emit('joinRoom', code);
         });
@@ -220,7 +261,6 @@
                 myCell.addEventListener('click', () => {
                     if (!isPlacingPhase) return;
 
-                    // Änderungsmöglichkeit: Wenn bereits ein Schiff auf dieser Zelle liegt, löschen wir es komplett!
                     if (placedShipsMap[i]) {
                         const shipToRemove = placedShipsMap[i];
                         shipToRemove.cells.forEach(idx => {
@@ -232,7 +272,7 @@
                         selectedShip = null;
                         actionBtn.style.display = "none";
                         renderInventory();
-                        statusText.innerText = `${shipToRemove.name} entfernt. Du kannst es neu platzieren.`;
+                        statusText.innerText = `${shipToRemove.name} entfernt.`;
                         return;
                     }
 
@@ -261,7 +301,6 @@
                         selectedShip = null;
                         renderInventory();
                         
-                        // Wenn alle Schiffe platziert sind, zeige den Start Button!
                         if (inventory.every(s => s.placed)) {
                             statusText.innerText = "Alle Schiffe platziert! Drücke 'Spiel starten'!";
                             actionBtn.style.display = "block";
@@ -291,9 +330,7 @@
             rotateBtn.innerText = isHorizontal ? "Ausrichtung: Waagerecht ➡️" : "Ausrichtung: Senkrecht ⬇️";
         });
 
-        // Klick auf den Start-Button
         actionBtn.addEventListener('click', () => {
-            // Schiffkoordinaten für das echte Match fixieren
             myShips = Object.keys(placedShipsMap).map(Number);
             isPlacingPhase = false;
             document.getElementById('inventory').style.display = 'none';
@@ -320,16 +357,12 @@
             if (myShips.includes(index)) {
                 result = 'hit';
                 cell.classList.add('hit');
-                hitSound.play();
+                playSoundEffect(hitSound); // Nutzt Ducking-Effekt
                 enemyHitCount++;
-                
-                // Prüfen, ob der Gegner ALLE meine Schiffsteile (17 gesamt) getroffen hat
-                if (enemyHitCount === 17) {
-                    showEndscreen(false);
-                }
+                if (enemyHitCount === 17) showEndscreen(false);
             } else {
                 cell.classList.add('miss');
-                missSound.play();
+                playSoundEffect(missSound); // Nutzt Ducking-Effekt
             }
 
             socket.emit('shotResult', { roomCode: currentRoomCode, result, targetX: data.targetX, targetY: data.targetY });
@@ -352,10 +385,8 @@
             if (data.result === 'hit') {
                 cell.classList.add('hit');
                 cell.innerText = "X";
-                hitSound.play();
+                playSoundEffect(hitSound); // Nutzt Ducking-Effekt
                 totalHitCount++;
-                
-                // Wenn ich alle 17 Teile getroffen habe, habe ICH gewonnen!
                 if (totalHitCount === 17) {
                     showEndscreen(true);
                 } else {
@@ -365,7 +396,7 @@
             } else {
                 cell.classList.add('miss');
                 cell.innerText = "O";
-                missSound.play();
+                playSoundEffect(missSound); // Nutzt Ducking-Effekt
                 myTurn = false;
                 statusText.innerText = "Vorbeigeschossen. Gegner ist an der Reihe...";
             }
@@ -382,7 +413,6 @@
             }
         }
 
-        // Restart anfordern
         document.getElementById('restartBtn').addEventListener('click', () => {
             endscreen.style.display = "none";
             socket.emit('requestRestart', { roomCode: currentRoomCode });
@@ -397,8 +427,6 @@
             alert("Der Gegner hat die Verbindung getrennt. Das Spiel wird zurückgesetzt.");
             window.location.reload();
         });
-        
-        socket.on('roomFull', () => { alert("Raum voll!"); });
     </script>
 </body>
 </html>
