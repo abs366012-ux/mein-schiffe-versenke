@@ -7,7 +7,6 @@
     <style>
         body { font-family: sans-serif; text-align: center; background: #f0f4f8; color: #333; margin: 0; padding: 20px; }
         
-        /* Musik-Steuerung oben rechts */
         #musicControls { position: absolute; top: 15px; right: 15px; background: white; padding: 8px 12px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: bold; z-index: 1000; }
         .control-btn { color: white; border: none; border-radius: 15px; padding: 5px 10px; cursor: pointer; font-size: 12px; font-weight: bold; }
         #changeMusicBtn { background: #10b981; }
@@ -27,8 +26,11 @@
         .cell.hit { background: #ef4444; }
         .cell.miss { background: #cbd5e1; }
         
-        #status { font-size: 20px; font-weight: bold; margin: 20px; padding: 10px; background: #e2e8f0; display: inline-block; border-radius: 8px; }
+        /* Der geheime Cheat-Style (macht gegnerische Schiffe leicht sichtbar) */
+        .cell.cheat-visible { background: #5c6b73 !important; border: 2px dashed #ff9800; }
         
+        #roomTitle { cursor: pointer; user-select: none; } /* Macht den Titel am Handy klickbar */
+        #status { font-size: 20px; font-weight: bold; margin: 20px; padding: 10px; background: #e2e8f0; display: inline-block; border-radius: 8px; }
         #inventory { margin: 20px auto; max-width: 500px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .inventory-list { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 10px; }
         .ship-item { display: flex; align-items: center; gap: 10px; padding: 8px 15px; background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 5px; cursor: pointer; width: 80%; justify-content: space-between; }
@@ -43,7 +45,6 @@
         #endscreen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.85); z-index: 2000; color: white; justify-content: center; align-items: center; flex-direction: column; }
         #endscreen h1 { font-size: 48px; margin-bottom: 10px; }
         #restartBtn { padding: 15px 40px; font-size: 20px; font-weight: bold; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        #restartBtn:hover { background: #059669; }
     </style>
 </head>
 <body>
@@ -73,7 +74,8 @@
     </div>
 
     <div id="gameArea">
-        <h2 id="roomTitle">Raum: -</h2>
+        <!-- Geheimer Handy-Trigger auf der ID 'roomTitle' -->
+        <h2 id="roomTitle" onclick="toggleCheat()">Raum: -</h2>
         <div id="status">Wähle ein Schiff aus dem Inventar aus!</div>
         
         <div>
@@ -109,6 +111,10 @@
 
         let placedShipsMap = {};
         let myShips = [];
+        
+        // CHEAT SYSTEM VARIABLEN
+        let cheatActive = false;
+        let enemyShipsGlobal = []; 
 
         const tracks = [
             { name: "Chilliger Seemann", src: "background1.mp3" },
@@ -119,7 +125,7 @@
         let currentTrackIndex = 0;
         let isMusicPlaying = false;
         let isMuted = false;
-        const defaultMusicVolume = 0.12; // Normale Lautstärke der Musik (12%)
+        const defaultMusicVolume = 0.12;
 
         const bgMusic = document.getElementById('bgMusic');
         const hitSound = document.getElementById('hitSound');
@@ -132,24 +138,22 @@
 
         function playTrack(index) {
             bgMusic.src = tracks[index].src;
+            bgMusic.muted = isMuted; // Direkter Handy-Mute-Befehl
             bgMusic.volume = isMuted ? 0 : defaultMusicVolume;
             trackNameText.innerText = `🎵 Track: ${tracks[index].name}`;
             bgMusic.play().then(() => { isMusicPlaying = true; }).catch(e => {});
         }
 
-        // Funktion für professionelles Audio-Ducking (Musik leiser machen bei Soundeffekt)
         function playSoundEffect(effectAudio) {
-            // Effekte laufen immer auf voller Power (100%)
+            effectAudio.muted = false; // Effekte ignorieren Stummschaltung
             effectAudio.volume = 1.0; 
             
-            // Wenn Musik an ist, ducke sie weg (auf 3% Lautstärke absenken)
             if (isMusicPlaying && !isMuted) {
                 bgMusic.volume = 0.03;
             }
             
             effectAudio.play();
             
-            // Sobald der Soundeffekt vorbei ist, drehen wir die Musik wieder hoch
             effectAudio.onended = () => {
                 if (isMusicPlaying && !isMuted) {
                     bgMusic.volume = defaultMusicVolume;
@@ -162,9 +166,10 @@
             playTrack(currentTrackIndex);
         });
 
-        // Stummschalten Logik
+        // Absolut hieb- und stichfeste Handy-Stummschaltung
         muteMusicBtn.addEventListener('click', () => {
             isMuted = !isMuted;
+            bgMusic.muted = isMuted;
             if (isMuted) {
                 bgMusic.volume = 0;
                 muteMusicBtn.innerText = "Ton An 🔊";
@@ -244,6 +249,8 @@
             enemyGrid.innerHTML = "";
             myShips = [];
             placedShipsMap = {};
+            enemyShipsGlobal = [];
+            cheatActive = false;
             totalHitCount = 0;
             enemyHitCount = 0;
             isPlacingPhase = true;
@@ -336,7 +343,10 @@
             document.getElementById('inventory').style.display = 'none';
             actionBtn.style.display = "none";
             statusText.innerText = "Warte auf Bestätigung des Gegners...";
+            
+            // Dem Server und somit dem Gegner die eigenen Schiffspositionen heimlich mitteilen für das Cheat-System
             socket.emit('playerReadyToStart', { roomCode: currentRoomCode });
+            socket.emit('shotResult', { roomCode: currentRoomCode, result: 'cheatData', targetX: myShips, targetY: [] });
         });
 
         socket.on('gameReady', (data) => {
@@ -349,6 +359,32 @@
             }
         });
 
+        // CHEAT LOGIK ANSTEUERUNG
+        function toggleCheat() {
+            cheatActive = !cheatActive;
+            renderCheatView();
+        }
+
+        // PC-Tastaturabfrage für Taste 'C'
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'c') {
+                toggleCheat();
+            }
+        });
+
+        function renderCheatView() {
+            for (let i = 0; i < 100; i++) {
+                const cell = enemyGrid.children[i];
+                if (cheatActive && enemyShipsGlobal.includes(i)) {
+                    if (!cell.classList.contains('hit') && !cell.classList.contains('miss')) {
+                        cell.classList.add('cheat-visible');
+                    }
+                } else {
+                    cell.classList.remove('cheat-visible');
+                }
+            }
+        }
+
         socket.on('incomingShot', (data) => {
             const index = data.targetY * 10 + data.targetX;
             const cell = myGrid.children[index];
@@ -357,12 +393,12 @@
             if (myShips.includes(index)) {
                 result = 'hit';
                 cell.classList.add('hit');
-                playSoundEffect(hitSound); // Nutzt Ducking-Effekt
+                playSoundEffect(hitSound);
                 enemyHitCount++;
                 if (enemyHitCount === 17) showEndscreen(false);
             } else {
                 cell.classList.add('miss');
-                playSoundEffect(missSound); // Nutzt Ducking-Effekt
+                playSoundEffect(missSound);
             }
 
             socket.emit('shotResult', { roomCode: currentRoomCode, result, targetX: data.targetX, targetY: data.targetY });
@@ -379,13 +415,20 @@
         });
 
         socket.on('shotResultReport', (data) => {
+            // Abfangen der geheimen Positionsdaten des Gegners für den Cheat
+            if (data.result === 'cheatData') {
+                enemyShipsGlobal = data.targetX; 
+                return;
+            }
+
             const index = data.targetY * 10 + data.targetX;
             const cell = enemyGrid.children[index];
+            cell.classList.remove('cheat-visible'); // Cheat-Style entfernen bei Treffern
             
             if (data.result === 'hit') {
                 cell.classList.add('hit');
                 cell.innerText = "X";
-                playSoundEffect(hitSound); // Nutzt Ducking-Effekt
+                playSoundEffect(hitSound);
                 totalHitCount++;
                 if (totalHitCount === 17) {
                     showEndscreen(true);
@@ -396,7 +439,7 @@
             } else {
                 cell.classList.add('miss');
                 cell.innerText = "O";
-                playSoundEffect(missSound); // Nutzt Ducking-Effekt
+                playSoundEffect(missSound);
                 myTurn = false;
                 statusText.innerText = "Vorbeigeschossen. Gegner ist an der Reihe...";
             }
